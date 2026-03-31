@@ -1,4 +1,5 @@
-const API_URL = '/api';
+const IS_DEV = window.location.hostname === 'localhost';
+const API_URL = IS_DEV ? '/api' : 'https://foote.onrender.com/api';
 
 function getToken() {
   return localStorage.getItem('token');
