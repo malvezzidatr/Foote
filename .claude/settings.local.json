@@ -1,0 +1,15 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(npm install:*)",
+      "Bash(cp .env.example .env)",
+      "Bash(timeout 5 node src/index.js)",
+      "Bash(npx vite:*)",
+      "Bash(rm -f db/racha.db)",
+      "Bash(PORT=3099 timeout 5 node src/index.js)",
+      "Bash(npm uninstall:*)",
+      "Bash(git init:*)",
+      "Bash(git add:*)"
+    ]
+  }
+}
