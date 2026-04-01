@@ -6,56 +6,81 @@ const TEAM_STYLES = [
   { bg: '#f59e0b', ring: '#fcd34d' },
 ];
 
-// Distribui jogadores na formacao 2-1-2-1 (ataque → goleiro)
-// Prioridade por posicao real, fallback por ordem
+// Posicoes do campo de cima para baixo: Goleiro -> Defesa -> Meio -> Ataque
+// Cada slot tem posicao Y (%) e X (%) para simular formacao real
+const SLOTS_6 = [
+  { role: 'Goleiro',   y: 76, x: 44 },   // goleiro no fundo
+  { role: 'Zagueiro',  y: 70, x: 12 },   // zagueiro/lateral esquerdo
+  { role: 'Zagueiro',  y: 70, x: 75 },   // zagueiro/lateral direito
+  { role: 'Meia',      y: 43, x: 45 },   // meia centralizado
+  { role: 'Atacante',  y: 13, x: 13 },   // ponta esquerda
+  { role: 'Atacante',  y: 13, x: 75 },   // ponta direita
+];
+
 const POS_PRIORITY = {
-  'Atacante': 0,
-  'Meia': 1,
-  'Volante': 2,
+  'Goleiro': 0,
+  'Zagueiro': 1,
   'Lateral': 2,
-  'Zagueiro': 3,
-  'Goleiro': 4,
+  'Volante': 3,
+  'Meia': 4,
+  'Atacante': 5,
 };
 
 function distribuirFormacao(jogadores) {
-  // Ordena por posicao (atacantes primeiro, goleiro por ultimo)
-  const sorted = [...jogadores].sort((a, b) => {
-    const pa = POS_PRIORITY[a.posicao] ?? 2;
-    const pb = POS_PRIORITY[b.posicao] ?? 2;
-    return pa - pb;
-  });
-
-  if (sorted.length >= 6) {
-    return [
-      sorted.slice(0, 2),  // 2 atacantes/pontas
-      sorted.slice(2, 3),  // 1 meia/volante
-      sorted.slice(3, 5),  // 2 laterais/zagueiros
-      sorted.slice(5, 6),  // 1 goleiro
-    ];
+  if (jogadores.length < 6) {
+    // Fallback: distribui em linhas simples
+    const sorted = [...jogadores].sort((a, b) => (POS_PRIORITY[b.posicao] ?? 3) - (POS_PRIORITY[a.posicao] ?? 3));
+    const spacing = 100 / (sorted.length + 1);
+    return sorted.map((j, i) => ({ ...j, x: 50, y: spacing * (i + 1) }));
   }
-  if (sorted.length === 5) return [sorted.slice(0, 2), sorted.slice(2, 3), sorted.slice(3, 5)];
-  if (sorted.length === 4) return [sorted.slice(0, 2), sorted.slice(2, 4)];
-  if (sorted.length === 3) return [sorted.slice(0, 1), sorted.slice(1, 2), sorted.slice(2, 3)];
-  if (sorted.length === 2) return [sorted.slice(0, 1), sorted.slice(1, 2)];
-  return [sorted];
+
+  // Classificar jogadores por posicao
+  const goleiros = jogadores.filter(j => j.posicao === 'Goleiro');
+  const defesa = jogadores.filter(j => ['Zagueiro', 'Lateral'].includes(j.posicao));
+  const meias = jogadores.filter(j => ['Meia', 'Volante'].includes(j.posicao));
+  const atacantes = jogadores.filter(j => j.posicao === 'Atacante');
+  const outros = jogadores.filter(j => !POS_PRIORITY.hasOwnProperty(j.posicao));
+
+  // Pool para preencher slots que nao tem jogador ideal
+  const pool = [...outros, ...meias, ...defesa, ...atacantes, ...goleiros];
+  const used = new Set();
+
+  function pick(preferidos) {
+    for (const j of preferidos) {
+      if (!used.has(j.id)) { used.add(j.id); return j; }
+    }
+    for (const j of pool) {
+      if (!used.has(j.id)) { used.add(j.id); return j; }
+    }
+    return null;
+  }
+
+  return [
+    { ...pick(goleiros),  ...SLOTS_6[0] },
+    { ...pick(defesa),    ...SLOTS_6[1] },
+    { ...pick(defesa),    ...SLOTS_6[2] },
+    { ...pick([...meias, ...outros]), ...SLOTS_6[3] },
+    { ...pick(atacantes), ...SLOTS_6[4] },
+    { ...pick(atacantes), ...SLOTS_6[5] },
+  ].filter(Boolean);
 }
 
-export default function CampoFormacao({ times, onJogadorClick }) {
+export default function CampoFormacao({ times, onJogadorClick, isAdmin }) {
   if (!times || times.length === 0) return null;
 
   return (
     <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
       {times.map((time, ti) => (
-        <MiniCampo key={ti} time={time} teamIndex={ti} onJogadorClick={onJogadorClick} />
+        <MiniCampo key={ti} time={time} teamIndex={ti} onJogadorClick={onJogadorClick} isAdmin={isAdmin} />
       ))}
     </div>
   );
 }
 
-function MiniCampo({ time, teamIndex, onJogadorClick }) {
+function MiniCampo({ time, teamIndex, onJogadorClick, isAdmin }) {
   const style = TEAM_STYLES[teamIndex] || TEAM_STYLES[0];
   const nomes = ['Azul', 'Vermelho', 'Amarelo'];
-  const linhas = distribuirFormacao(time.jogadores_detalhes);
+  const posicoes = distribuirFormacao(time.jogadores_detalhes);
 
   return (
     <motion.div
@@ -67,7 +92,10 @@ function MiniCampo({ time, teamIndex, onJogadorClick }) {
       {/* Header */}
       <div className="flex items-center justify-between px-4 py-2.5" style={{ background: style.bg }}>
         <span className="text-white font-bold text-sm">Time {nomes[teamIndex]}</span>
-        <span className="text-white/70 text-xs font-bold">{time.jogadores_detalhes.length} jogadores</span>
+        <div className="flex items-center gap-2">
+          {isAdmin && time.media_notas && <span className="text-white/90 text-[10px] font-bold bg-white/20 px-2 py-0.5 rounded-full">Media {time.media_notas}</span>}
+          <span className="text-white/70 text-xs font-bold">{time.jogadores_detalhes.length} jogadores</span>
+        </div>
       </div>
 
       {/* Campo */}
@@ -94,36 +122,42 @@ function MiniCampo({ time, teamIndex, onJogadorClick }) {
         </svg>
 
         {/* Jogadores */}
-        <div className="relative flex flex-col justify-between py-6 px-3" style={{ minHeight: '260px' }}>
-          {linhas.map((linha, li) => (
-            <div key={li} className="flex justify-center gap-4">
-              {linha.map((j, ji) => (
-                <motion.div
-                  key={j.id}
-                  initial={{ scale: 0, opacity: 0 }}
-                  animate={{ scale: 1, opacity: 1 }}
-                  transition={{ delay: 0.2 + (li * 0.1) + (ji * 0.05), type: 'spring', stiffness: 300, damping: 18 }}
-                  className="flex flex-col items-center gap-1 cursor-pointer group"
-                  onClick={() => onJogadorClick?.(j.id)}
-                >
-                  <div
-                    className="w-10 h-10 rounded-full flex items-center justify-center text-white font-bold text-xs border-2 shadow-lg transition-transform group-hover:scale-110"
-                    style={{
-                      background: style.bg,
-                      borderColor: style.ring,
-                      boxShadow: `0 2px 8px ${style.bg}66`,
-                    }}
-                  >
-                    {j.nome.split(' ').map(p => p[0]).join('').substring(0, 2).toUpperCase()}
-                  </div>
-                  <div className="bg-black/50 backdrop-blur-sm px-1.5 py-0.5 rounded-md">
-                    <span className="text-white text-[9px] font-bold leading-none whitespace-nowrap">
-                      {(j.apelido || j.nome.split(' ')[0]).substring(0, 8)}
-                    </span>
-                  </div>
-                </motion.div>
-              ))}
-            </div>
+        <div className="relative" style={{ minHeight: '300px' }}>
+          {posicoes.map((j, i) => (
+            <motion.div
+              key={j.id}
+              initial={{ scale: 0, opacity: 0 }}
+              animate={{ scale: 1, opacity: 1 }}
+              transition={{ delay: 0.2 + (i * 0.06), type: 'spring', stiffness: 300, damping: 18 }}
+              className="absolute flex flex-col items-center gap-1 cursor-pointer group"
+              style={{ top: `${j.y}%`, left: `${j.x}%`, transform: 'translate(-50%, -50%)' }}
+              onClick={() => onJogadorClick?.(j.id)}
+            >
+              {/* Tooltip */}
+              <div className="absolute bottom-full mb-2 opacity-0 group-hover:opacity-100 pointer-events-none transition-all duration-200 scale-90 group-hover:scale-100 z-10">
+                <div className="bg-gray-900/95 backdrop-blur-sm rounded-xl px-3 py-2.5 shadow-xl min-w-[120px]">
+                  <p className="text-white text-xs font-bold truncate">{j.apelido || j.nome}</p>
+                  <p className="text-gray-400 text-[10px]">{j.posicao}</p>
+                  {isAdmin && <p className="text-lime-400 text-[10px] font-bold mt-0.5">Nota: {j.nota || 5}</p>}
+                  <div className="absolute left-1/2 -translate-x-1/2 top-full w-0 h-0 border-l-[5px] border-r-[5px] border-t-[5px] border-l-transparent border-r-transparent border-t-gray-900/95" />
+                </div>
+              </div>
+              <div
+                className="w-10 h-10 rounded-full flex items-center justify-center text-white font-bold text-xs border-2 shadow-lg transition-transform group-hover:scale-110"
+                style={{
+                  background: style.bg,
+                  borderColor: style.ring,
+                  boxShadow: `0 2px 8px ${style.bg}66`,
+                }}
+              >
+                {j.nome.split(' ').map(p => p[0]).join('').substring(0, 2).toUpperCase()}
+              </div>
+              <div className="bg-black/50 backdrop-blur-sm px-1.5 py-0.5 rounded-md">
+                <span className="text-white text-[9px] font-bold leading-none whitespace-nowrap">
+                  {(j.apelido || j.nome.split(' ')[0]).substring(0, 8)}
+                </span>
+              </div>
+            </motion.div>
           ))}
         </div>
       </div>

@@ -2,6 +2,7 @@ const { Router } = require('express');
 const { getDb } = require('../db/schema');
 const { requireAuth, requireGroupAdmin, requireGroupMember } = require('../middleware/auth');
 const { criarPagamentoPix } = require('../services/mercadopago');
+const { sortearTimes } = require('../services/sorteio');
 
 const router = Router();
 
@@ -65,7 +66,11 @@ router.get('/:grupoId/meu-role', requireAuth, async (req, res) => {
   const db = getDb();
   const membro = await db.prepare('SELECT id, role FROM membros WHERE grupo_id = $1 AND usuario_id = $2 AND ativo = 1')
     .get(Number(req.params.grupoId), req.user.id);
-  res.json({ role: membro?.role || null, membro_id: membro?.id || null });
+  let penalizado = false;
+  if (membro) {
+    penalizado = (await db.prepare('SELECT COUNT(*) as total FROM penalidades WHERE membro_id = $1 AND ativa = 1').get(membro.id)).total > 0;
+  }
+  res.json({ role: membro?.role || null, membro_id: membro?.id || null, penalizado });
 });
 
 // ─── MEMBROS ───
@@ -73,7 +78,7 @@ router.get('/:grupoId/membros', async (req, res) => {
   const db = getDb();
   const grupoId = Number(req.params.grupoId);
   const membros = await db.prepare(`
-    SELECT m.id as membro_id, m.role, m.posicao, m.apelido, m.ativo, u.id as usuario_id, u.nome, u.email, u.foto
+    Select m.id as membro_id, m.role, m.posicao, m.apelido, m.nota, m.ativo, u.id as usuario_id, u.nome, u.email, u.foto
     FROM membros m JOIN usuarios u ON u.id = m.usuario_id WHERE m.grupo_id = $1 AND m.ativo = 1 ORDER BY u.nome
   `).all(grupoId);
 
@@ -88,13 +93,26 @@ router.get('/:grupoId/membros', async (req, res) => {
   res.json(result);
 });
 
+// PATCH /api/grupos/:grupoId/membros/:membroId/nota
+router.patch('/:grupoId/membros/:membroId/nota', requireAuth, requireGroupAdmin, async (req, res) => {
+  const db = getDb();
+  const grupoId = Number(req.params.grupoId);
+  const membroId = Number(req.params.membroId);
+  const { nota } = req.body;
+  if (nota == null || nota < 1 || nota > 10) return res.status(400).json({ error: 'Nota deve ser entre 1 e 10' });
+  const membro = await db.prepare('SELECT * FROM membros WHERE id = $1 AND grupo_id = $2').get(membroId, grupoId);
+  if (!membro) return res.status(404).json({ error: 'Membro nao encontrado' });
+  await db.prepare('UPDATE membros SET nota = $1 WHERE id = $2').run(nota, membroId);
+  res.json({ message: 'Nota atualizada', nota });
+});
+
 // GET /api/grupos/:grupoId/membros/:membroId
 router.get('/:grupoId/membros/:membroId', async (req, res) => {
   const db = getDb();
   const grupoId = Number(req.params.grupoId);
   const membroId = Number(req.params.membroId);
   const membro = await db.prepare(`
-    SELECT m.id as membro_id, m.role, m.posicao, m.apelido, u.id as usuario_id, u.nome, u.email, u.foto
+    SELECT m.id as membro_id, m.role, m.posicao, m.apelido, m.nota, u.id as usuario_id, u.nome, u.email, u.foto
     FROM membros m JOIN usuarios u ON u.id = m.usuario_id WHERE m.id = $1 AND m.grupo_id = $2
   `).get(membroId, grupoId);
   if (!membro) return res.status(404).json({ error: 'Membro nao encontrado' });
@@ -122,6 +140,21 @@ router.get('/:grupoId/membros/:membroId', async (req, res) => {
     ...membro, gols, assistencias, jogos, calotes, media_gols, penalidades,
     penalidade_ativa: penalidades.some(p => p.ativa), ultimo_jogo: ultimo_jogo?.data || null, historico,
   });
+});
+
+// POST /api/grupos/:grupoId/membros/:membroId/penalidade
+router.post('/:grupoId/membros/:membroId/penalidade', requireAuth, requireGroupAdmin, async (req, res) => {
+  const db = getDb();
+  const grupoId = Number(req.params.grupoId);
+  const membroId = Number(req.params.membroId);
+  const { tipo, motivo, duracao, valor } = req.body;
+  if (!tipo || !motivo) return res.status(400).json({ error: 'Tipo e motivo obrigatorios' });
+  const membro = await db.prepare('SELECT * FROM membros WHERE id = $1 AND grupo_id = $2').get(membroId, grupoId);
+  if (!membro) return res.status(404).json({ error: 'Membro nao encontrado' });
+  const penalidade = await db.prepare(
+    'INSERT INTO penalidades (grupo_id, membro_id, tipo, motivo, duracao, valor) VALUES ($1, $2, $3, $4, $5, $6) RETURNING *'
+  ).get(grupoId, membroId, tipo, motivo, duracao || null, valor || null);
+  res.status(201).json(penalidade);
 });
 
 // ─── RACHAS ───
@@ -155,7 +188,7 @@ router.get('/:grupoId/rachas/:rachaId', async (req, res) => {
   if (!racha) return res.status(404).json({ error: 'Racha nao encontrado' });
 
   const confirmados = await db.prepare(`
-    SELECT c.id, c.membro_id, c.status, m.apelido, m.posicao, u.nome, u.foto
+    SELECT c.id, c.membro_id, c.status, m.apelido, m.posicao, m.nota, u.nome, u.foto
     FROM confirmacoes c JOIN membros m ON m.id = c.membro_id JOIN usuarios u ON u.id = m.usuario_id
     WHERE c.racha_id = $1 AND c.status = 'pago'
   `).all(rachaId);
@@ -165,7 +198,7 @@ router.get('/:grupoId/rachas/:rachaId', async (req, res) => {
     WHERE c.racha_id = $1 AND c.status = 'pendente'
   `).all(rachaId);
   const timesRows = await db.prepare(`
-    SELECT t.time_numero, t.membro_id, m.apelido, m.posicao, u.nome, u.foto
+    SELECT t.time_numero, t.membro_id, m.apelido, m.posicao, m.nota, u.nome, u.foto
     FROM times t JOIN membros m ON m.id = t.membro_id JOIN usuarios u ON u.id = m.usuario_id
     WHERE t.racha_id = $1 ORDER BY t.time_numero
   `).all(rachaId);
@@ -197,6 +230,41 @@ router.post('/:grupoId/rachas', requireAuth, requireGroupAdmin, async (req, res)
   res.status(201).json(racha);
 });
 
+// POST sortear times
+router.post('/:grupoId/rachas/:rachaId/sortear', requireAuth, requireGroupAdmin, async (req, res) => {
+  const db = getDb();
+  const grupoId = Number(req.params.grupoId);
+  const rachaId = Number(req.params.rachaId);
+
+  const racha = await db.prepare('SELECT * FROM rachas WHERE id = $1 AND grupo_id = $2').get(rachaId, grupoId);
+  if (!racha) return res.status(404).json({ error: 'Racha nao encontrado' });
+  if (racha.status !== 'aberto') return res.status(400).json({ error: 'Racha nao esta aberto' });
+
+  // Buscar confirmados pagos com nota
+  const confirmados = await db.prepare(`
+    SELECT c.membro_id, m.apelido, m.posicao, m.nota, u.nome
+    FROM confirmacoes c JOIN membros m ON m.id = c.membro_id JOIN usuarios u ON u.id = m.usuario_id
+    WHERE c.racha_id = $1 AND c.status = 'pago'
+  `).all(rachaId);
+
+  if (confirmados.length < 6) return res.status(400).json({ error: 'Minimo 6 jogadores para sortear' });
+
+  // Limpar times anteriores
+  await db.prepare('DELETE FROM times WHERE racha_id = $1').run(rachaId);
+
+  const jogadores = confirmados.map(c => ({ ...c, nota: c.nota || 5 }));
+  const times = sortearTimes(jogadores);
+
+  // Inserir times
+  for (const time of times) {
+    for (const j of time.jogadores) {
+      await db.prepare('INSERT INTO times (racha_id, time_numero, membro_id) VALUES ($1, $2, $3)').run(rachaId, time.time_numero, j.membro_id);
+    }
+  }
+
+  res.json({ times });
+});
+
 // POST confirmar presenca
 router.post('/:grupoId/rachas/:rachaId/confirmar', requireAuth, requireGroupMember, async (req, res) => {
   try {
@@ -208,6 +276,9 @@ router.post('/:grupoId/rachas/:rachaId/confirmar', requireAuth, requireGroupMemb
     const racha = await db.prepare('SELECT * FROM rachas WHERE id = $1 AND grupo_id = $2').get(rachaId, grupoId);
     if (!racha) return res.status(404).json({ error: 'Racha nao encontrado' });
     if (racha.status !== 'aberto') return res.status(400).json({ error: 'Racha nao esta aberto' });
+
+    const penalizado = (await db.prepare('SELECT COUNT(*) as total FROM penalidades WHERE membro_id = $1 AND ativa = 1').get(membroId)).total > 0;
+    if (penalizado) return res.status(403).json({ error: 'Voce esta penalizado e nao pode confirmar presenca' });
 
     const grupo = await db.prepare('SELECT mp_access_token FROM grupos WHERE id = $1').get(grupoId);
     if (!grupo?.mp_access_token) return res.status(400).json({ error: 'Mercado Pago nao conectado neste grupo. Peca ao admin para conectar.' });
@@ -278,7 +349,7 @@ router.get('/:grupoId/caixinha', async (req, res) => {
   const grupoId = Number(req.params.grupoId);
   const entradas = Number((await db.prepare("SELECT COALESCE(SUM(valor), 0) as total FROM caixinha WHERE grupo_id = $1 AND tipo = 'entrada'").get(grupoId)).total);
   const saidas = Number((await db.prepare("SELECT COALESCE(SUM(valor), 0) as total FROM caixinha WHERE grupo_id = $1 AND tipo = 'saida'").get(grupoId)).total);
-  const historico = await db.prepare('SELECT * FROM caixinha WHERE grupo_id = $1 ORDER BY created_at DESC LIMIT 10').all(grupoId);
+  const historico = await db.prepare('SELECT * FROM caixinha WHERE grupo_id = $1 ORDER BY created_at DESC').all(grupoId);
   res.json({ saldo: entradas - saidas, entradas, saidas, historico });
 });
 

@@ -108,6 +108,7 @@ async function initDb() {
       role TEXT NOT NULL DEFAULT 'membro',
       posicao TEXT DEFAULT 'Meia',
       apelido TEXT,
+      nota REAL NOT NULL DEFAULT 5,
       ativo INTEGER NOT NULL DEFAULT 1,
       created_at TIMESTAMP DEFAULT NOW(),
       UNIQUE(grupo_id, usuario_id)
@@ -176,6 +177,11 @@ async function initDb() {
       created_at TIMESTAMP DEFAULT NOW()
     );
   `);
+
+  // Migrations
+  try {
+    await db.prepare("ALTER TABLE membros ADD COLUMN nota REAL NOT NULL DEFAULT 5").run();
+  } catch {}
 
   return db;
 }

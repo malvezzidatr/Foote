@@ -54,6 +54,8 @@ export const getMeuRole = (grupoId) => request(`/grupos/${grupoId}/meu-role`, { 
 // ─── Membros / Elenco ───
 export const getMembros = (grupoId) => request(`/grupos/${grupoId}/membros`, { headers: getHeaders(false) });
 export const getMembroPerfil = (grupoId, membroId) => request(`/grupos/${grupoId}/membros/${membroId}`, { headers: getHeaders(false) });
+export const atualizarNota = (grupoId, membroId, nota) => request(`/grupos/${grupoId}/membros/${membroId}/nota`, { method: 'PATCH', headers: getHeaders(), body: JSON.stringify({ nota }) });
+export const criarPenalidade = (grupoId, membroId, data) => request(`/grupos/${grupoId}/membros/${membroId}/penalidade`, { method: 'POST', headers: getHeaders(), body: JSON.stringify(data) });
 
 // ─── Rachas ───
 export const getRachas = (grupoId) => request(`/grupos/${grupoId}/rachas`, { headers: getHeaders(false) });
@@ -62,6 +64,7 @@ export const criarRacha = (grupoId, data) => request(`/grupos/${grupoId}/rachas`
 export const confirmarPresenca = (grupoId, rachaId) => request(`/grupos/${grupoId}/rachas/${rachaId}/confirmar`, { method: 'POST', headers: getHeaders() });
 export const cancelarPresenca = (grupoId, rachaId) => request(`/grupos/${grupoId}/rachas/${rachaId}/sair`, { method: 'POST', headers: getHeaders() });
 export const getPagamentoStatus = (grupoId, rachaId) => request(`/grupos/${grupoId}/rachas/${rachaId}/pagamento-status`, { headers: getHeaders() });
+export const sortearTimes = (grupoId, rachaId) => request(`/grupos/${grupoId}/rachas/${rachaId}/sortear`, { method: 'POST', headers: getHeaders() });
 
 // Mercado Pago OAuth
 export const getMpOAuthUrl = (grupoId) => request(`/mp-oauth/connect/${grupoId}`, { headers: getHeaders() });

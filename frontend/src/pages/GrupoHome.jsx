@@ -4,7 +4,8 @@ import { useState, useEffect } from 'react';
 import PageTransition from '../components/PageTransition';
 import { useGroupRole } from '../services/useGroupRole';
 import { useAuth } from '../services/AuthContext';
-import { getRachas, getCaixinha, criarRacha, entrarGrupo } from '../services/api';
+import { getRachas, getCaixinha, criarRacha, entrarGrupo, getMpStatus } from '../services/api';
+import MpConnectButton from '../components/MpConnectButton';
 
 const stagger = { hidden: {}, show: { transition: { staggerChildren: 0.07 } } };
 const fadeUp = { hidden: { opacity: 0, y: 30 }, show: { opacity: 1, y: 0, transition: { duration: 0.5, ease: [0.22, 1, 0.36, 1] } } };
@@ -12,13 +13,14 @@ const fadeUp = { hidden: { opacity: 0, y: 30 }, show: { opacity: 1, y: 0, transi
 export default function GrupoHome() {
   const { grupoId } = useParams();
   const { isLoggedIn } = useAuth();
-  const { isAdmin, isMembro, loaded: roleLoaded } = useGroupRole(grupoId);
+  const { isAdmin, isMembro, penalizado, loaded: roleLoaded } = useGroupRole(grupoId);
   const basePath = `/g/${grupoId}`;
   const [showCriar, setShowCriar] = useState(false);
   const [entrando, setEntrando] = useState(false);
   const [rachas, setRachas] = useState([]);
   const [caixinha, setCaixinha] = useState(null);
   const [loading, setLoading] = useState(true);
+  const [mpConnected, setMpConnected] = useState(false);
 
   function carregar() {
     Promise.all([
@@ -28,6 +30,12 @@ export default function GrupoHome() {
   }
 
   useEffect(() => { carregar(); }, [grupoId]);
+
+  useEffect(() => {
+    if (isAdmin) {
+      getMpStatus(grupoId).then(d => setMpConnected(d?.connected)).catch(() => {});
+    }
+  }, [grupoId, isAdmin]);
 
   const proximos = rachas.filter(r => r.status === 'aberto').sort((a, b) => new Date(a.data) - new Date(b.data));
   const passados = rachas.filter(r => r.status === 'finalizado').sort((a, b) => new Date(b.data) - new Date(a.data));
@@ -48,12 +56,16 @@ export default function GrupoHome() {
               </h1>
             </div>
             {isAdmin && (
-              <motion.button whileHover={{ scale: 1.02 }} whileTap={{ scale: 0.98 }} onClick={() => setShowCriar(true)}
-                className="bg-gray-900 text-white px-6 py-3.5 rounded-2xl font-bold text-sm flex items-center gap-2 hover:bg-gray-800 transition shadow-lg shadow-gray-900/10 self-start"
-              >
-                <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}><path strokeLinecap="round" strokeLinejoin="round" d="M12 4.5v15m7.5-7.5h-15" /></svg>
-                Criar racha
-              </motion.button>
+              <div className="flex flex-col gap-3 self-start">
+                <motion.button whileHover={mpConnected ? { scale: 1.02 } : {}} whileTap={mpConnected ? { scale: 0.98 } : {}}
+                  onClick={() => mpConnected ? setShowCriar(true) : null}
+                  disabled={!mpConnected}
+                  className={`px-6 py-3.5 rounded-2xl font-bold text-sm flex items-center gap-2 transition shadow-lg self-start ${mpConnected ? 'bg-gray-900 text-white hover:bg-gray-800 shadow-gray-900/10' : 'bg-gray-300 text-gray-500 cursor-not-allowed shadow-none'}`}
+                >
+                  <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}><path strokeLinecap="round" strokeLinejoin="round" d="M12 4.5v15m7.5-7.5h-15" /></svg>
+                  Criar racha
+                </motion.button>
+              </div>
             )}
           </div>
         </motion.div>
@@ -84,12 +96,34 @@ export default function GrupoHome() {
           </motion.div>
         )}
 
+        {isAdmin && !mpConnected && (
+          <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} className="mb-8">
+            <div className="bg-amber-50 border border-amber-200 rounded-2xl p-5">
+              <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
+                <div>
+                  <p className="font-bold text-gray-800">Mercado Pago nao conectado</p>
+                  <p className="text-sm text-gray-500">Conecte para receber pagamentos e criar rachas</p>
+                </div>
+                <MpConnectButton grupoId={grupoId} />
+              </div>
+            </div>
+          </motion.div>
+        )}
+
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 lg:gap-8 mb-12">
           <motion.div variants={stagger} initial="hidden" animate="show" className="space-y-5">
-            {proximos.map(r => <RachaCardLarge key={r.id} racha={r} basePath={basePath} />)}
+            {proximos.map(r => <RachaCardLarge key={r.id} racha={r} basePath={basePath} penalizado={penalizado} />)}
             {proximos.length === 0 && (
               <div className="bg-white rounded-3xl p-10 border border-gray-100 text-center">
-                <p className="text-gray-400 text-lg">Nenhum racha agendado.</p>
+                <p className="text-gray-400 text-lg mb-4">Nenhum racha agendado.</p>
+                {isAdmin && (
+                  <button onClick={() => mpConnected && setShowCriar(true)} disabled={!mpConnected}
+                    className={`px-5 py-3 rounded-2xl font-bold text-sm inline-flex items-center gap-2 transition shadow-lg ${mpConnected ? 'bg-gray-900 text-white hover:bg-gray-800 shadow-gray-900/10' : 'bg-gray-300 text-gray-500 cursor-not-allowed shadow-none'}`}
+                  >
+                    <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}><path strokeLinecap="round" strokeLinejoin="round" d="M12 4.5v15m7.5-7.5h-15" /></svg>
+                    Criar racha
+                  </button>
+                )}
               </div>
             )}
           </motion.div>
@@ -102,7 +136,7 @@ export default function GrupoHome() {
                   <span className="text-[10px] font-bold text-gray-400 uppercase tracking-widest">Saldo atual</span>
                 </div>
                 <p className="font-display text-5xl lg:text-6xl font-bold text-lime-600 mb-4">R${caixinha.saldo.toFixed(0)}</p>
-                <div className="space-y-2">
+                <div className="space-y-2 mb-4">
                   {(caixinha.historico || []).slice(0, 4).map((h, i) => (
                     <div key={i} className="flex items-center justify-between py-1.5 border-b border-gray-50 last:border-0">
                       <span className="text-sm text-gray-500 truncate mr-4">{h.descricao}</span>
@@ -111,6 +145,12 @@ export default function GrupoHome() {
                       </span>
                     </div>
                   ))}
+                </div>
+                <div className="flex justify-end">
+                  <Link to={`${basePath}/caixinha`} className="text-sm font-semibold text-lime-600 hover:text-lime-700 transition flex items-center gap-1">
+                    Ver mais
+                    <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M8.25 4.5l7.5 7.5-7.5 7.5" /></svg>
+                  </Link>
                 </div>
               </div>
             )}
@@ -144,13 +184,35 @@ export default function GrupoHome() {
   );
 }
 
-function RachaCardLarge({ racha, basePath }) {
+function RachaCardLarge({ racha, basePath, penalizado }) {
   const dataObj = new Date(racha.data);
   const dia = dataObj.getDate();
   const mes = dataObj.toLocaleDateString('pt-BR', { month: 'short' }).replace('.', '');
   const diaSemana = dataObj.toLocaleDateString('pt-BR', { weekday: 'long' });
   const horario = dataObj.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
   const totalConf = racha.total_confirmados || 0;
+
+  if (penalizado) {
+    return (
+      <motion.div variants={fadeUp}>
+        <div className="bg-white rounded-3xl p-6 lg:p-8 border border-red-200 opacity-70">
+          <div className="flex items-center gap-2 mb-4">
+            <div className="bg-red-100 text-red-600 text-[10px] font-black uppercase tracking-widest px-4 py-1.5 rounded-full">Bloqueado</div>
+          </div>
+          <div className="flex items-center gap-4 mb-4">
+            <div className="bg-gray-100 rounded-2xl w-20 h-20 lg:w-24 lg:h-24 flex items-center justify-center border border-gray-200">
+              <svg className="w-10 h-10 text-gray-300" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}><path strokeLinecap="round" strokeLinejoin="round" d="M16.5 10.5V6.75a4.5 4.5 0 10-9 0v3.75m-.75 11.25h10.5a2.25 2.25 0 002.25-2.25v-6.75a2.25 2.25 0 00-2.25-2.25H6.75a2.25 2.25 0 00-2.25 2.25v6.75a2.25 2.25 0 002.25 2.25z" /></svg>
+            </div>
+            <div>
+              <p className="font-display text-2xl font-bold text-gray-400">Racha agendado</p>
+              <p className="text-gray-400 text-sm">Data e horario ocultos</p>
+            </div>
+          </div>
+          <p className="text-red-500 text-sm font-semibold">Voce esta penalizado e nao pode participar deste racha.</p>
+        </div>
+      </motion.div>
+    );
+  }
 
   return (
     <motion.div variants={fadeUp}>

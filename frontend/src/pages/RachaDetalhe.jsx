@@ -6,13 +6,13 @@ import Avatar from '../components/Avatar';
 import CampoFormacao from '../components/CampoFormacao';
 import { useGroupRole } from '../services/useGroupRole';
 import { useAuth } from '../services/AuthContext';
-import { getRacha, confirmarPresenca, cancelarPresenca, getPagamentoStatus } from '../services/api';
+import { getRacha, confirmarPresenca, cancelarPresenca, getPagamentoStatus, sortearTimes } from '../services/api';
 
 export default function RachaDetalhe() {
   const { grupoId, id } = useParams();
   const navigate = useNavigate();
   const basePath = `/g/${grupoId}`;
-  const { isAdmin, isMembro, membroId } = useGroupRole(grupoId);
+  const { isAdmin, isMembro, membroId, penalizado } = useGroupRole(grupoId);
   const { isLoggedIn } = useAuth();
   const [racha, setRacha] = useState(null);
   const [loading, setLoading] = useState(true);
@@ -20,6 +20,7 @@ export default function RachaDetalhe() {
   const [confirmando, setConfirmando] = useState(false);
   const [pixData, setPixData] = useState(null);
   const [copiado, setCopiado] = useState(false);
+  const [sorteando, setSorteando] = useState(false);
 
   function carregar() {
     return getRacha(grupoId, id).then(d => setRacha(d)).catch(() => {}).finally(() => setLoading(false));
@@ -94,16 +95,22 @@ export default function RachaDetalhe() {
   ];
 
   // Formatar times para CampoFormacao
-  const timesFormatados = racha.times?.map(t => ({
-    ...t,
-    jogadores_detalhes: t.jogadores.map(j => ({
+  const timesFormatados = racha.times?.map(t => {
+    const jogadores_detalhes = t.jogadores.map(j => ({
       id: j.membro_id,
       nome: j.nome,
       apelido: j.apelido,
       posicao: j.posicao,
-    })),
-    soma_notas: 0,
-  }));
+      nota: j.nota || 5,
+    }));
+    const soma = jogadores_detalhes.reduce((acc, j) => acc + j.nota, 0);
+    return {
+      ...t,
+      jogadores_detalhes,
+      soma_notas: soma,
+      media_notas: jogadores_detalhes.length > 0 ? (soma / jogadores_detalhes.length).toFixed(1) : '0',
+    };
+  });
 
   return (
     <PageTransition>
@@ -116,6 +123,25 @@ export default function RachaDetalhe() {
         <div className="lg:grid lg:grid-cols-3 lg:gap-10">
           <div className="lg:col-span-1 mb-8 lg:mb-0">
             <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} className="lg:sticky lg:top-12">
+              {penalizado && racha.status === 'aberto' ? (
+                <>
+                  <span className="inline-block text-[10px] font-black uppercase tracking-widest px-4 py-1.5 rounded-full mb-4 bg-red-100 text-red-600">
+                    Bloqueado
+                  </span>
+                  <h1 className="font-display text-4xl lg:text-5xl font-bold text-gray-400 leading-[0.9] mb-2">Racha agendado</h1>
+                  <p className="text-gray-400 font-medium text-lg">Data e horario ocultos</p>
+                  <div className="mt-6 bg-red-50 rounded-2xl p-5 border border-red-200">
+                    <div className="flex items-center gap-3">
+                      <svg className="w-8 h-8 text-red-400 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}><path strokeLinecap="round" strokeLinejoin="round" d="M16.5 10.5V6.75a4.5 4.5 0 10-9 0v3.75m-.75 11.25h10.5a2.25 2.25 0 002.25-2.25v-6.75a2.25 2.25 0 00-2.25-2.25H6.75a2.25 2.25 0 00-2.25 2.25v6.75a2.25 2.25 0 002.25 2.25z" /></svg>
+                      <div>
+                        <p className="font-bold text-red-700 text-sm">Voce esta penalizado</p>
+                        <p className="text-red-500 text-xs">Nao e possivel confirmar presenca ou ver detalhes deste racha.</p>
+                      </div>
+                    </div>
+                  </div>
+                </>
+              ) : (
+                <>
               <span className={`inline-block text-[10px] font-black uppercase tracking-widest px-4 py-1.5 rounded-full mb-4 ${isFinalizado ? 'bg-gray-100 text-gray-500' : 'bg-lime-500 text-white'}`}>
                 {racha.status}
               </span>
@@ -207,6 +233,8 @@ export default function RachaDetalhe() {
               {racha.status === 'aberto' && isLoggedIn && !isMembro && (
                 <p className="mt-5 text-center text-sm text-gray-400">Entre no grupo para confirmar presenca</p>
               )}
+                </>
+              )}
             </motion.div>
           </div>
 
@@ -236,7 +264,10 @@ export default function RachaDetalhe() {
                                 <p className="text-[11px] text-gray-400">{j.posicao}</p>
                               </div>
                             </div>
-                            <span className="bg-lime-100 text-lime-700 text-[10px] font-bold px-2.5 py-1 rounded-full">Pago</span>
+                            <div className="flex items-center gap-2">
+                              {isAdmin && <span className="bg-gray-100 text-gray-600 text-[10px] font-bold px-2 py-1 rounded-full">{j.nota || 5}</span>}
+                              <span className="bg-lime-100 text-lime-700 text-[10px] font-bold px-2.5 py-1 rounded-full">Pago</span>
+                            </div>
                           </div>
                         </Link>
                       </motion.div>
@@ -265,7 +296,7 @@ export default function RachaDetalhe() {
 
               {tab === 'times' && timesFormatados && (
                 <motion.div key="times" initial={{ opacity: 0, x: 20 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -20 }} transition={{ duration: 0.25 }}>
-                  <CampoFormacao times={timesFormatados} onJogadorClick={(id) => navigate(`${basePath}/jogador/${id}`)} />
+                  <CampoFormacao times={timesFormatados} onJogadorClick={(id) => navigate(`${basePath}/jogador/${id}`)} isAdmin={isAdmin} />
                 </motion.div>
               )}
 
@@ -303,8 +334,20 @@ export default function RachaDetalhe() {
                     </div>
                     <h3 className="font-display text-xl font-bold text-gray-900 mb-2">Sortear times</h3>
                     <p className="text-gray-400 text-sm mb-6 max-w-sm mx-auto">{racha.total_confirmados || 0} jogadores confirmados.</p>
-                    <button className="bg-lime-500 text-white px-8 py-3.5 rounded-2xl font-bold hover:bg-lime-600 active:scale-[0.98] transition-all shadow-lg shadow-lime-500/20">
-                      Sortear agora
+                    <button
+                      onClick={async () => {
+                        setSorteando(true);
+                        try {
+                          await sortearTimes(grupoId, id);
+                          await carregar();
+                          setTab('times');
+                        } catch (err) { alert(err.message); }
+                        finally { setSorteando(false); }
+                      }}
+                      disabled={sorteando}
+                      className="bg-lime-500 text-white px-8 py-3.5 rounded-2xl font-bold hover:bg-lime-600 active:scale-[0.98] transition-all shadow-lg shadow-lime-500/20 disabled:opacity-50"
+                    >
+                      {sorteando ? 'Sorteando...' : 'Sortear agora'}
                     </button>
                   </div>
                 </motion.div>

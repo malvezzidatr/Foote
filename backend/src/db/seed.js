@@ -120,7 +120,7 @@ async function seed() {
     "INSERT INTO rachas (grupo_id, data, local, valor_por_pessoa, status, prazo_pagamento) VALUES ($1, $2, $3, $4, $5, $6) RETURNING *"
   ).get(grupoId, '2026-04-10T20:00:00', 'Arena Society Premium', 20, 'aberto', '2026-04-09T20:00:00');
 
-  for (const idx of [0, 1, 2, 4, 5, 7, 8, 11, 13, 14]) {
+  for (const idx of [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17]) {
     await db.prepare("INSERT INTO confirmacoes (racha_id, membro_id, status, valor_pago, paid_at) VALUES ($1, $2, 'pago', $3, NOW())").run(rachaAberto.id, membroIds[idx], 20);
   }
   for (const idx of [3, 6]) {
@@ -146,6 +146,12 @@ async function seed() {
   await db.prepare("INSERT INTO caixinha (grupo_id, racha_id, descricao, tipo, valor) VALUES ($1, $2, $3, $4, $5)").run(grupoId, racha3.id, 'Excedente racha 03/04', 'entrada', 68);
   await db.prepare("INSERT INTO caixinha (grupo_id, descricao, tipo, valor) VALUES ($1, $2, $3, $4)").run(grupoId, 'Multa - Pedro Santos', 'entrada', 20);
   await db.prepare("INSERT INTO caixinha (grupo_id, descricao, tipo, valor) VALUES ($1, $2, $3, $4)").run(grupoId, 'Coletes novos', 'saida', 38);
+  await db.prepare("INSERT INTO caixinha (grupo_id, descricao, tipo, valor) VALUES ($1, $2, $3, $4)").run(grupoId, 'Coletes novos', 'saida', 48);
+  await db.prepare("INSERT INTO caixinha (grupo_id, descricao, tipo, valor) VALUES ($1, $2, $3, $4)").run(grupoId, 'Multa - Pedro Santos', 'entrada', 25);
+  await db.prepare("INSERT INTO caixinha (grupo_id, descricao, tipo, valor) VALUES ($1, $2, $3, $4)").run(grupoId, 'Coletes novos', 'saida', 55);
+  await db.prepare("INSERT INTO caixinha (grupo_id, descricao, tipo, valor) VALUES ($1, $2, $3, $4)").run(grupoId, 'Coletes novos', 'saida', 12);
+  await db.prepare("INSERT INTO caixinha (grupo_id, descricao, tipo, valor) VALUES ($1, $2, $3, $4)").run(grupoId, 'Multa - Pedro Santos', 'entrada', 70);
+
   console.log('[SEED] Caixinha criada');
 
   console.log(`\n[SEED] Pronto! Acesse: http://localhost:5173/g/${grupoId}`);
